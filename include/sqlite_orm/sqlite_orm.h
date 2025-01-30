@@ -14054,18 +14054,17 @@ namespace sqlite_orm {
 
         struct connection_holder {
 
-            connection_holder(std::string filename_, std::string vfs_name_ = {}) :
-                filename(std::move(filename_)), vfs_name(std::move(vfs_name_)) {}
+            connection_holder(std::string filename_,
+                              std::string vfs_name_ = {},
+                              int open_flags_ = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) :
+                filename(std::move(filename_)), vfs_name(std::move(vfs_name_)), open_flags(open_flags_) {}
 
             void retain() {
                 if(1 == ++this->_retain_count) {
 
-                    const char * vfs = vfs_name.empty() ? nullptr : vfs_name.c_str();
+                    const char* vfs = vfs_name.empty() ? nullptr : vfs_name.c_str();
 
-                    auto rc = sqlite3_open_v2(this->filename.c_str(),
-                                              &this->db,
-                                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
-                                              vfs);
+                    auto rc = sqlite3_open_v2(this->filename.c_str(), &this->db, open_flags, vfs);
 
                     if(rc != SQLITE_OK) {
                         throw_translated_sqlite_error(db);
@@ -14092,6 +14091,7 @@ namespace sqlite_orm {
 
             const std::string filename;
             const std::string vfs_name;
+            const int open_flags;
 
           protected:
             sqlite3* db = nullptr;
@@ -18414,11 +18414,11 @@ namespace sqlite_orm {
             }
 
           protected:
-            storage_base(std::string filename, int foreignKeysCount) :
+            storage_base(std::string filename, std::string vfs_name, int open_flags, int foreignKeysCount) :
                 pragma(std::bind(&storage_base::get_connection, this)),
                 limit(std::bind(&storage_base::get_connection, this)),
                 inMemory(filename.empty() || filename == ":memory:"),
-                connection(std::make_unique<connection_holder>(std::move(filename))),
+                connection(std::make_unique<connection_holder>(std::move(filename), std::move(vfs_name), open_flags)),
                 cachedForeignKeysCount(foreignKeysCount) {
                 if(this->inMemory) {
                     this->connection->retain();
@@ -22179,8 +22179,9 @@ namespace sqlite_orm {
              *  @param filename database filename.
              *  @param dbObjects db_objects_tuple
              */
-            storage_t(std::string filename, db_objects_type dbObjects) :
-                storage_base{std::move(filename), foreign_keys_count(dbObjects)}, db_objects{std::move(dbObjects)} {}
+            storage_t(std::string filename, std::string vfs_name, int open_flags, db_objects_type dbObjects) :
+                storage_base{std::move(filename), std::move(vfs_name), open_flags, foreign_keys_count(dbObjects)},
+                db_objects{std::move(dbObjects)} {}
 
             storage_t(const storage_t&) = default;
 
@@ -22357,7 +22358,7 @@ namespace sqlite_orm {
                 return {this->db_objects, std::move(con), std::move(expression)};
             }
 
-#if(SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
+#if (SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
             template<class... CTEs, class E>
 #ifdef SQLITE_ORM_CONCEPTS_SUPPORTED
                 requires(is_select_v<E>)
@@ -22432,7 +22433,7 @@ namespace sqlite_orm {
 
           protected:
             template<class F, class O, class... Args>
-            std::string group_concat_internal(F O::*m, std::unique_ptr<std::string> y, Args&&... args) {
+            std::string group_concat_internal(F O::* m, std::unique_ptr<std::string> y, Args&&... args) {
                 this->assert_mapped_type<O>();
                 std::vector<std::string> rows;
                 if(y) {
@@ -22819,7 +22820,7 @@ namespace sqlite_orm {
                 return this->execute(statement);
             }
 
-#if(SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
+#if (SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
             /**
              *  Using a CTE, select a single column into std::vector<T> or multiple columns into std::vector<std::tuple<...>>.
              */
@@ -23085,12 +23086,12 @@ namespace sqlite_orm {
 
             template<class F, class O>
             [[deprecated("Use the more accurately named function `find_column_name()`")]] const std::string*
-            column_name(F O::*memberPointer) const {
+            column_name(F O::* memberPointer) const {
                 return internal::find_column_name(this->db_objects, memberPointer);
             }
 
             template<class F, class O>
-            const std::string* find_column_name(F O::*memberPointer) const {
+            const std::string* find_column_name(F O::* memberPointer) const {
                 return internal::find_column_name(this->db_objects, memberPointer);
             }
 
@@ -23338,7 +23339,7 @@ namespace sqlite_orm {
 
             using storage_base::table_exists;  // now that it is in storage_base make it into overload set
 
-#if(SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
+#if (SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
             template<class... CTEs,
                      class E,
                      std::enable_if_t<polyfill::disjunction_v<is_select<E>, is_insert_raw<E>>, bool> = true>
@@ -23467,7 +23468,7 @@ namespace sqlite_orm {
                 perform_step(stmt);
             }
 
-#if(SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
+#if (SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
             template<class... CTEs, class E, satisfies<is_insert_raw, E> = true>
             void execute(const prepared_statement_t<with_t<E, CTEs...>>& statement) {
                 sqlite3_stmt* stmt = reset_stmt(statement.stmt);
@@ -23697,7 +23698,7 @@ namespace sqlite_orm {
                 perform_step(stmt);
             }
 
-#if(SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
+#if (SQLITE_VERSION_NUMBER >= 3008003) && defined(SQLITE_ORM_WITH_CTE)
             template<class... CTEs, class T, class... Args>
             auto execute(const prepared_statement_t<with_t<select_t<T, Args...>, CTEs...>>& statement) {
                 using ExprDBOs = decltype(db_objects_for_expression(this->db_objects, statement.expression));
@@ -23785,8 +23786,19 @@ namespace sqlite_orm {
      *  Factory function for a storage, from a database file and a bunch of database object definitions.
      */
     template<class... DBO>
+    internal::storage_t<DBO...> make_storage(std::string filename, std::string vfs, int open_flags, DBO... dbObjects) {
+        return {std::move(filename),
+                vfs,
+                open_flags,
+                internal::db_objects_tuple<DBO...>{std::forward<DBO>(dbObjects)...}};
+    }
+
+    template<class... DBO>
     internal::storage_t<DBO...> make_storage(std::string filename, DBO... dbObjects) {
-        return {std::move(filename), internal::db_objects_tuple<DBO...>{std::forward<DBO>(dbObjects)...}};
+        return {std::move(filename),
+                {},
+                SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                internal::db_objects_tuple<DBO...>{std::forward<DBO>(dbObjects)...}};
     }
 
     /**
