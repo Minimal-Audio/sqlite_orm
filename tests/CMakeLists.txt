@@ -149,6 +149,7 @@ add_executable(unit_tests
     backup_tests.cpp
     transaction_tests.cpp
     json.cpp
+    open_v2_tests.cpp
     row_id.cpp
     trigger_tests.cpp
     ast_iterator_tests.cpp
