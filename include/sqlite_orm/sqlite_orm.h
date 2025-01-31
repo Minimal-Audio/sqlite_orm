@@ -121,7 +121,7 @@ using std::nullptr_t;
 #define SQLITE_ORM_CLASSTYPE_TEMPLATE_ARGS_SUPPORTED
 #endif
 
-#if __cpp_pack_indexing >= 202311L && __cplusplus >= 202311L
+#if __cpp_pack_indexing >= 202311L && __cplusplus > 202302L
 #define SQLITE_ORM_PACK_INDEXING_SUPPORTED
 #endif
 
@@ -23615,13 +23615,17 @@ namespace sqlite_orm {
     }
 
     template<class... DBO>
-    internal::storage_t<DBO...> make_storage(std::string filename, DBO... dbObjects) {
+    internal::storage_t<DBO...> make_storage(std::string filename, std::string vfs, DBO... dbObjects) {
         return {std::move(filename),
-                {},
+                vfs,
                 SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
                 internal::db_objects_tuple<DBO...>{std::forward<DBO>(dbObjects)...}};
     }
 
+    template<class... DBO>
+    internal::storage_t<DBO...> make_storage(std::string filename, DBO... dbObjects) {
+        return {std::move(filename), {}, internal::db_objects_tuple<DBO...>{std::forward<DBO>(dbObjects)...}};
+    }
     /**
      *  sqlite3_threadsafe() interface.
      */
